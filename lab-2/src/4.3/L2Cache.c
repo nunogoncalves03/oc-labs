@@ -137,7 +137,7 @@ void accessL1(uint32_t address, uint8_t *data, uint32_t mode) {
 /*********************** L2 cache *************************/
 
 void accessL2(uint32_t address, uint8_t *data, uint32_t mode) {
-  // 17 bits tag, 9 bits index, 6 bits offset
+  // 18 bits tag, 8 bits index, 6 bits offset
   uint32_t index, Tag, MemAddress;
   uint8_t TempBlock[BLOCK_SIZE];
 
@@ -145,8 +145,10 @@ void accessL2(uint32_t address, uint8_t *data, uint32_t mode) {
   if (L2Cache.init == 0) {
     L2Cache.init = 1;
 
-    for (uint32_t i = 0; i < L2_LINES_N; i++) {
-      L2Cache.lines[i].Valid = 0;
+    for (uint32_t i = 0; i < L2_SETS_N; i++) {
+      for (uint32_t j = 0; j < L2_SET_ASSOCIATIVITY; j++) {
+        L2Cache.sets[i].lines[j].Valid = 0;
+      }
     }
   }
 
@@ -161,19 +163,40 @@ void accessL2(uint32_t address, uint8_t *data, uint32_t mode) {
   printf("Index %d\n", index);
   printf("MemAddress %d\n", MemAddress);
 
-  CacheLine *Line = &L2Cache.lines[index];
+  CacheSet *Set = &L2Cache.sets[index];
+  CacheLine *Line = NULL;
+  uint8_t LineIndex;
 
-  /* access Cache*/
+  /* Choose which line within the set will be accessed */
+  if (Set->lines[0].Valid && Set->lines[0].Tag == Tag) {
+    Line = &Set->lines[0];
+    LineIndex = 0;
+  } else if (Set->lines[1].Valid && Set->lines[1].Tag == Tag) {
+    Line = &Set->lines[1];
+    LineIndex = 1;
+  } else if (!Set->lines[0].Valid) {
+    Line = &Set->lines[0];
+    LineIndex = 0;
+  } else if (!Set->lines[1].Valid) {
+    Line = &Set->lines[1];
+    LineIndex = 1;
+  } else {
+    Line = Set->last_referred == 0 ? &Set->lines[1] : &Set->lines[0];
+    LineIndex = Set->last_referred == 0 ? 1 : 0;
+  }
 
+  uint32_t LineAddress = index * BLOCK_SIZE * L2_SET_ASSOCIATIVITY + LineIndex * BLOCK_SIZE;
+  
+  /* access Cache */
   if (!Line->Valid || Line->Tag != Tag) {         // if block not present - miss
     accessDRAM(MemAddress, TempBlock, MODE_READ); // get new block from DRAM
 
     if ((Line->Valid) && (Line->Dirty)) { // line has dirty block
       uint32_t OldMemAddress = ((Line->Tag << L2_INDEX_BITS) + index) << OFFSET_BITS;
-      accessDRAM(OldMemAddress, &(L2CacheData[index * BLOCK_SIZE]), MODE_WRITE); // then write back old block
+      accessDRAM(OldMemAddress, &(L2CacheData[LineAddress]), MODE_WRITE); // then write back old block
     }
 
-    memcpy(&(L2CacheData[index * BLOCK_SIZE]), TempBlock,
+    memcpy(&(L2CacheData[LineAddress]), TempBlock,
            BLOCK_SIZE); // copy new block to cache line
 
     Line->Valid = 1;
@@ -184,30 +207,32 @@ void accessL2(uint32_t address, uint8_t *data, uint32_t mode) {
   if (mode == MODE_READ) {    // read data from cache line
     printf("=== L2 READ %d ===\n", address);
     for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
-          printf("%d ", L2CacheData[index * BLOCK_SIZE + i]);
+          printf("%d ", L2CacheData[LineAddress + i]);
     }
     printf("\n");
 
     // assuming the given address is aligned
-    memcpy(data, &(L2CacheData[index * BLOCK_SIZE]), BLOCK_SIZE);
+    memcpy(data, &(L2CacheData[LineAddress]), BLOCK_SIZE);
     time += L2_READ_TIME;
+    Set->last_referred = LineIndex;
   }
 
   if (mode == MODE_WRITE) { // write data from cache line
     printf("=== L2 BEFORE WRITE %d ===\n", address);
     for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
-          printf("%d ", L2CacheData[index * BLOCK_SIZE + i]);
+          printf("%d ", L2CacheData[LineAddress + i]);
     }
     printf("\n");
 
     // assuming the given address is aligned
-    memcpy(&(L2CacheData[index * BLOCK_SIZE]), data, BLOCK_SIZE);
+    memcpy(&(L2CacheData[LineAddress]), data, BLOCK_SIZE);
     time += L2_WRITE_TIME;
     Line->Dirty = 1;
+    Set->last_referred = LineIndex;
 
     printf("=== L2 AFTER WRITE %d ===\n", address);
     for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
-          printf("%d ", L2CacheData[index * BLOCK_SIZE + i]);
+          printf("%d ", L2CacheData[LineAddress + i]);
     }
     printf("\n");
   }

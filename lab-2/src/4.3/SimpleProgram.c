@@ -27,5 +27,10 @@ int main() {
   printf("Time: %d\n", clock);
   printf("Value 0: %d\n", value0);
 
+  read(4, (uint8_t *)(&value0));
+  clock = getTime();
+  printf("Time: %d\n", clock);
+  printf("Value 0: %d\n", value0);
+
   return 0;
 }
