@@ -2,7 +2,7 @@
 
 int main() {
 
-  int value0, value1, value2, clock;
+  uint32_t value0, value1, value2, clock;
 
   resetTime();
   initCache();
@@ -10,19 +10,19 @@ int main() {
   value1 = -1;
   value2 = 0;
 
-  write(1, (unsigned char *)(&value1));
+  write(1, (uint8_t *)(&value1));
   clock = getTime();
   printf("Time: %d\n", clock);
 
-  write(512, (unsigned char *)(&value0));
+  write(16384, (uint8_t *)(&value0));
   clock = getTime();
   printf("Time: %d\n", clock);
 
-  read(1, (unsigned char *)(&value2));
+  read(1, (uint8_t *)(&value2));
   clock = getTime();
   printf("Time: %d\n", clock);
 
-  read(512, (unsigned char *)(&value2));
+  read(16384, (uint8_t *)(&value2));
   clock = getTime();
   printf("Time: %d\n", clock);
 

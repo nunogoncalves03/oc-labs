@@ -1,9 +1,9 @@
 #include "L2Cache.h"
 
-unsigned char L1CacheData[L1_SIZE];
-unsigned char L2CacheData[L2_SIZE];
-unsigned char DRAM[DRAM_SIZE];
-unsigned int time;
+uint8_t L1CacheData[L1_SIZE];
+uint8_t L2CacheData[L2_SIZE];
+uint8_t DRAM[DRAM_SIZE];
+uint32_t time;
 L1CacheStruct L1Cache;
 L2CacheStruct L2Cache;
 
@@ -15,10 +15,10 @@ void initCache() {
 /**************** Time Manipulation ***************/
 void resetTime() { time = 0; }
 
-unsigned int getTime() { return time; }
+uint32_t getTime() { return time; }
 
 /****************  RAM memory (byte addressable) ***************/
-void accessDRAM(int address, unsigned char *data, int mode) {
+void accessDRAM(uint32_t address, uint8_t *data, uint32_t mode) {
 
   if (address >= DRAM_SIZE - BLOCK_SIZE + 1)
     exit(-1);
@@ -26,41 +26,56 @@ void accessDRAM(int address, unsigned char *data, int mode) {
   if (mode == MODE_READ) {
     memcpy(data, &(DRAM[address]), BLOCK_SIZE);
     time += DRAM_READ_TIME;
+
+    printf("=== RAM READ %d ===\n", address);
+    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
+          printf("%d ", DRAM[((address >> OFFSET_BITS) << OFFSET_BITS) + i]);
+    }
+    printf("\n");
   }
 
   if (mode == MODE_WRITE) {
+    printf("=== RAM BEFORE WRITE %d ===\n", address);
+    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
+          printf("%d ", DRAM[((address >> OFFSET_BITS) << OFFSET_BITS) + i]);
+    }
+    printf("\n");
+
     memcpy(&(DRAM[address]), data, BLOCK_SIZE);
     time += DRAM_WRITE_TIME;
+
+    printf("=== RAM AFTER WRITE %d ===\n", address);
+    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
+          printf("%d ", DRAM[((address >> OFFSET_BITS) << OFFSET_BITS) + i]);
+    }
+    printf("\n");
   }
 }
 
 /*********************** L1 cache *************************/
 
-void accessL1(int address, unsigned char *data, int mode) {
-  unsigned int Address = (unsigned int) address;
-
-  printf("Address %d\n", Address);
-
-  unsigned int offset, index, Tag, MemAddress; // 24 bits tag, 5 bits index, 3 bits offset
-  unsigned char TempBlock[BLOCK_SIZE];
+void accessL1(uint32_t address, uint8_t *data, uint32_t mode) {
+  // 18 bits tag, 8 bits index, 6 bits offset
+  uint32_t offset, index, Tag, MemAddress;
+  uint8_t TempBlock[BLOCK_SIZE];
 
   /* init cache */
   if (L1Cache.init == 0) {
     L1Cache.init = 1;
 
-    for (int i = 0; i < L1_SIZE / BLOCK_SIZE; i++) {
+    for (uint32_t i = 0; i < L1_LINES_N; i++) {
       L1Cache.lines[i].Valid = 0;
     }
   }
 
-  offset = Address & 0b111; // apply a mask to remove the tag and index
+  offset = address & OFFSET_MASK; // apply a mask to remove the tag and index
 
-  index = Address >> 3; // remove offset
-  index = index & 0b11111; // apply a mask to remove the tag
+  index = address >> OFFSET_BITS; // remove offset
+  index = index & L1_INDEX_MASK; // apply a mask to remove the tag
 
-  Tag = Address >> (5 + 3); // remove index and offset
+  Tag = address >> (L1_INDEX_BITS + OFFSET_BITS); // remove index and offset
 
-  MemAddress = (Address >> 3) << 3; // address of the block in memory
+  MemAddress = (address >> OFFSET_BITS) << OFFSET_BITS; // address of the block in memory
 
   printf("Tag %d\n", Tag);
   printf("Offset %d\n", offset);
@@ -69,63 +84,78 @@ void accessL1(int address, unsigned char *data, int mode) {
 
   CacheLine *Line = &L1Cache.lines[index];
 
-  /* access Cache */
+  /* access Cache*/
 
   if (!Line->Valid || Line->Tag != Tag) {         // if block not present - miss
-    accessL2(MemAddress, TempBlock, MODE_READ); // get new block from L2
-    
+    accessL2(MemAddress, TempBlock, MODE_READ); // get new block from DRAM
+
     if ((Line->Valid) && (Line->Dirty)) { // line has dirty block
-      unsigned int OldMemAddress = ((Line->Tag << 5) + index) << 3;
-      accessL2(OldMemAddress, &(L1CacheData[index * BLOCK_SIZE]),
-                 MODE_WRITE); // then write back old block
+      uint32_t OldMemAddress = ((Line->Tag << L1_INDEX_BITS) + index) << OFFSET_BITS;
+      accessL2(OldMemAddress, &(L1CacheData[index * BLOCK_SIZE]), MODE_WRITE); // then write back old block
     }
 
     memcpy(&(L1CacheData[index * BLOCK_SIZE]), TempBlock,
            BLOCK_SIZE); // copy new block to cache line
+
     Line->Valid = 1;
     Line->Tag = Tag;
     Line->Dirty = 0;
   } // if miss, then replaced with the correct block
 
   if (mode == MODE_READ) {    // read data from cache line
-    offset -= offset % WORD_SIZE;  // align with the corresponding word
+    printf("=== L1 READ %d ===\n", address);
+    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
+          printf("%d ", L1CacheData[index * BLOCK_SIZE + i]);
+    }
+    printf("\n");
+
+    // assuming the given address is aligned
     memcpy(data, &(L1CacheData[index * BLOCK_SIZE + offset]), WORD_SIZE);
     time += L1_READ_TIME;
   }
 
   if (mode == MODE_WRITE) { // write data from cache line
-    offset -= offset % WORD_SIZE;  // align with the corresponding word
+    printf("=== L1 BEFORE WRITE %d ===\n", address);
+    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
+          printf("%d ", L1CacheData[index * BLOCK_SIZE + i]);
+    }
+    printf("\n");
+
+    // assuming the given address is aligned
     memcpy(&(L1CacheData[index * BLOCK_SIZE + offset]), data, WORD_SIZE);
     time += L1_WRITE_TIME;
     Line->Dirty = 1;
+
+    printf("=== L1 AFTER WRITE %d ===\n", address);
+    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
+          printf("%d ", L1CacheData[index * BLOCK_SIZE + i]);
+    }
+    printf("\n");
   }
 }
 
 /*********************** L2 cache *************************/
 
-void accessL2(int address, unsigned char *data, int mode) {
-  unsigned int Address = (unsigned int) address;
-
-  printf("Address %d\n", Address);
-
-  unsigned int index, Tag, MemAddress; // 24 bits tag, 5 bits index, 3 bits offset
-  unsigned char TempBlock[BLOCK_SIZE];
+void accessL2(uint32_t address, uint8_t *data, uint32_t mode) {
+  // 17 bits tag, 9 bits index, 6 bits offset
+  uint32_t index, Tag, MemAddress;
+  uint8_t TempBlock[BLOCK_SIZE];
 
   /* init cache */
   if (L2Cache.init == 0) {
     L2Cache.init = 1;
 
-    for (int i = 0; i < L2_SIZE / BLOCK_SIZE; i++) {
+    for (uint32_t i = 0; i < L2_LINES_N; i++) {
       L2Cache.lines[i].Valid = 0;
     }
   }
 
-  index = Address >> 3; // remove offset
-  index = index & 0b111111111; // apply a mask to remove the tag
+  index = address >> OFFSET_BITS; // remove offset
+  index = index & L2_INDEX_MASK; // apply a mask to remove the tag
 
-  Tag = Address >> (9 + 3); // remove index and offset
+  Tag = address >> (L2_INDEX_BITS + OFFSET_BITS); // remove index and offset
 
-  MemAddress = (Address >> 3) << 3; // address of the block in memory
+  MemAddress = (address >> OFFSET_BITS) << OFFSET_BITS; // address of the block in memory
 
   printf("Tag %d\n", Tag);
   printf("Index %d\n", index);
@@ -133,120 +163,60 @@ void accessL2(int address, unsigned char *data, int mode) {
 
   CacheLine *Line = &L2Cache.lines[index];
 
-  /* access Cache */
+  /* access Cache*/
 
   if (!Line->Valid || Line->Tag != Tag) {         // if block not present - miss
     accessDRAM(MemAddress, TempBlock, MODE_READ); // get new block from DRAM
 
     if ((Line->Valid) && (Line->Dirty)) { // line has dirty block
-      unsigned int OldMemAddress = ((Line->Tag << 9) + index) << 3;
-      accessDRAM(OldMemAddress, &(L2CacheData[index * BLOCK_SIZE]),
-                 MODE_WRITE); // then write back old block
+      uint32_t OldMemAddress = ((Line->Tag << L2_INDEX_BITS) + index) << OFFSET_BITS;
+      accessDRAM(OldMemAddress, &(L2CacheData[index * BLOCK_SIZE]), MODE_WRITE); // then write back old block
     }
 
     memcpy(&(L2CacheData[index * BLOCK_SIZE]), TempBlock,
            BLOCK_SIZE); // copy new block to cache line
+
     Line->Valid = 1;
     Line->Tag = Tag;
     Line->Dirty = 0;
   } // if miss, then replaced with the correct block
 
   if (mode == MODE_READ) {    // read data from cache line
+    printf("=== L2 READ %d ===\n", address);
+    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
+          printf("%d ", L2CacheData[index * BLOCK_SIZE + i]);
+    }
+    printf("\n");
+
+    // assuming the given address is aligned
     memcpy(data, &(L2CacheData[index * BLOCK_SIZE]), BLOCK_SIZE);
     time += L2_READ_TIME;
   }
 
   if (mode == MODE_WRITE) { // write data from cache line
+    printf("=== L2 BEFORE WRITE %d ===\n", address);
+    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
+          printf("%d ", L2CacheData[index * BLOCK_SIZE + i]);
+    }
+    printf("\n");
+
+    // assuming the given address is aligned
     memcpy(&(L2CacheData[index * BLOCK_SIZE]), data, BLOCK_SIZE);
     time += L2_WRITE_TIME;
     Line->Dirty = 1;
+
+    printf("=== L2 AFTER WRITE %d ===\n", address);
+    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
+          printf("%d ", L2CacheData[index * BLOCK_SIZE + i]);
+    }
+    printf("\n");
   }
 }
 
-void read(int address, unsigned char *data) {
-  // printf("=== L1 BEFORE READ ===\n");
-  // for (int i = 0; i < L1_SIZE; i++) {
-  //       printf("%d ", L1CacheData[i]);
-
-  //       if ((i + 1) % 8 == 0) {
-  //         printf("\n");
-  //       }
-  // }
-  // printf("\n");
-
-  // printf("=== L2 BEFORE READ ===\n");
-  // for (int i = 0; i < L2_SIZE; i++) {
-  //       printf("%d ", L2CacheData[i]);
-
-  //       if ((i + 1) % 8 == 0) {
-  //         printf("\n");
-  //       }
-  // }
-  // printf("\n");
-
+void read(uint32_t address, uint8_t *data) {
   accessL1(address, data, MODE_READ);
-
-  // printf("=== L1 AFTER READ ===\n");
-  // for (int i = 0; i < L1_SIZE; i++) {
-  //       printf("%d ", L1CacheData[i]);
-
-  //       if ((i + 1) % 8 == 0) {
-  //         printf("\n");
-  //       }
-  // }
-  // printf("\n");
-  
-  // printf("=== L2 AFTER READ ===\n");
-  // for (int i = 0; i < L2_SIZE; i++) {
-  //       printf("%d ", L2CacheData[i]);
-
-  //       if ((i + 1) % 8 == 0) {
-  //         printf("\n");
-  //       }
-  // }
-  // printf("\n");
 }
 
-void write(int address, unsigned char *data) {
-  // printf("=== L1 BEFORE WRITE ===\n");
-  // for (int i = 0; i < L1_SIZE; i++) {
-  //       printf("%d ", L1CacheData[i]);
-
-  //       if ((i + 1) % 8 == 0) {
-  //         printf("\n");
-  //       }
-  // }
-  // printf("\n");
-
-  // printf("=== L2 BEFORE WRITE ===\n");
-  // for (int i = 0; i < L2_SIZE; i++) {
-  //       printf("%d ", L2CacheData[i]);
-
-  //       if ((i + 1) % 8 == 0) {
-  //         printf("\n");
-  //       }
-  // }
-  // printf("\n");
-
+void write(uint32_t address, uint8_t *data) {
   accessL1(address, data, MODE_WRITE);
-
-  // printf("=== L1 AFTER WRITE ===\n");
-  // for (int i = 0; i < L1_SIZE; i++) {
-  //       printf("%d ", L1CacheData[i]);
-
-  //       if ((i + 1) % 8 == 0) {
-  //         printf("\n");
-  //       }
-  // }
-  // printf("\n");
-
-  // printf("=== L2 AFTER WRITE ===\n");
-  // for (int i = 0; i < L2_SIZE; i++) {
-  //       printf("%d ", L2CacheData[i]);
-
-  //       if ((i + 1) % 8 == 0) {
-  //         printf("\n");
-  //       }
-  // }
-  // printf("\n");
 }
