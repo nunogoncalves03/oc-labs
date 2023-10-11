@@ -19,29 +19,11 @@ void accessDRAM(uint32_t address, uint8_t *data, uint32_t mode) {
   if (mode == MODE_READ) {
     memcpy(data, &(DRAM[address]), BLOCK_SIZE);
     time += DRAM_READ_TIME;
-
-    printf("=== RAM READ %d ===\n", address);
-    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
-          printf("%d ", DRAM[((address >> OFFSET_BITS) << OFFSET_BITS) + i]);
-    }
-    printf("\n");
   }
 
   if (mode == MODE_WRITE) {
-    printf("=== RAM BEFORE WRITE %d ===\n", address);
-    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
-          printf("%d ", DRAM[((address >> OFFSET_BITS) << OFFSET_BITS) + i]);
-    }
-    printf("\n");
-
     memcpy(&(DRAM[address]), data, BLOCK_SIZE);
     time += DRAM_WRITE_TIME;
-
-    printf("=== RAM AFTER WRITE %d ===\n", address);
-    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
-          printf("%d ", DRAM[((address >> OFFSET_BITS) << OFFSET_BITS) + i]);
-    }
-    printf("\n");
   }
 }
 
@@ -72,11 +54,6 @@ void accessL1(uint32_t address, uint8_t *data, uint32_t mode) {
 
   MemAddress = (address >> OFFSET_BITS) << OFFSET_BITS; // address of the block in memory
 
-  printf("Tag %d\n", Tag);
-  printf("Offset %d\n", offset);
-  printf("Index %d\n", index);
-  printf("MemAddress %d\n", MemAddress);
-
   CacheLine *Line = &L1Cache.lines[index];
 
   /* access Cache*/
@@ -98,34 +75,16 @@ void accessL1(uint32_t address, uint8_t *data, uint32_t mode) {
   } // if miss, then replaced with the correct block
 
   if (mode == MODE_READ) {    // read data from cache line
-    printf("=== L1 READ %d ===\n", address);
-    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
-          printf("%d ", L1CacheData[index * BLOCK_SIZE + i]);
-    }
-    printf("\n");
-
     // assuming the given address is aligned
     memcpy(data, &(L1CacheData[index * BLOCK_SIZE + offset]), WORD_SIZE);
     time += L1_READ_TIME;
   }
 
   if (mode == MODE_WRITE) { // write data from cache line
-    printf("=== L1 BEFORE WRITE %d ===\n", address);
-    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
-          printf("%d ", L1CacheData[index * BLOCK_SIZE + i]);
-    }
-    printf("\n");
-
     // assuming the given address is aligned
     memcpy(&(L1CacheData[index * BLOCK_SIZE + offset]), data, WORD_SIZE);
     time += L1_WRITE_TIME;
     Line->Dirty = 1;
-
-    printf("=== L1 AFTER WRITE %d ===\n", address);
-    for (int i = 0; i < BLOCK_SIZE / WORD_SIZE; i++) {
-          printf("%d ", L1CacheData[index * BLOCK_SIZE + i]);
-    }
-    printf("\n");
   }
 }
 
